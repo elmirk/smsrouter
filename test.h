@@ -107,6 +107,7 @@ struct map_data{
 //typedef struct dlg_info;
 
 typedef struct dlg_info {
+    u16 dlg_id;
     u8  state;                          /* state */
     u8 type;                            /* dialogue type */ 
     u16 ptype;                          /* service primitive type */

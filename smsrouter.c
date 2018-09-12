@@ -49,9 +49,24 @@
 #include "test.h"
 #include "hlr.h"
 
+/*
+ * Mode. Determines which service requests will be sent in the dialogue
+ */
+#define MTU_FORWARD_SM          (0)        /* Forward short message */
+#define MTU_SEND_IMSI           (1)        /* Send IMSI */
+#define MTU_SRI_GPRS            (2)        /* Send routing info for GPRS */
+#define MTU_SI_SRIGPRS          (3)        /* alternates: Send IMSI & Send routing info for GPRS */
+#define MTU_MT_FORWARD_SM       (4)            /* Forward MT short message */
+#define SMSR_SRI_SM              (5)        /* Send Routing Information for Short Message */
+#define MTU_PROCESS_USS_REQ     (6)        /* Send MAP-ProcessUnstructuredSS-Request */
+
+
+
+
     int fd1[2]; //pipes descriptorw with hlr_agent
 
-
+    extern u8 smsrouter_mod_id;
+    extern u8 map_mod_id;
 
 /*
  * Prototypes for local functions:
@@ -108,6 +123,22 @@ static u16 out_dlg_id;// = 0x0000;                   /* current dialogue ID, sen
 static u16 base_out_dlg_id = 0x0000;   
 static u16 dlg_active;                   /* number of actibe outgoing dialogues */
 static u32 hlr_o_dlg_count;                /* counts number of dialogues opened from smsrouter to hlr*/
+
+
+/* new application context shortMsgMT-GatewayContext */
+static u8 shortMsgGatewayContext[AC_LEN] =
+{
+  06,           /* object identifier */
+  07,           /* length */
+  04,           /* CCITT */
+  00,           /* ETSI */
+  00,           /* Mobile domain */
+  01,           /* GSM network */
+  00,           /* application contexts */
+  20,           /* map-ac shortMsgGateway */
+  03            /* version 3 */
+};
+
 
 
 static u8 test_dest[]= {0x12, 0x06, 0x00, 0x11, 0x04, 0x97, 0x05, 0x66, 0x15, 0x20, 0x00 };
@@ -187,6 +218,135 @@ u16 MTU_def_alph_to_str(da_octs, da_olen, da_num, ascii_str, max_strlen)
   }
 
 
+  /*
+   * SMSR_disp_err
+   *
+   * Traces internal progress to the console.
+   *
+   * Always returns zero.
+   */
+  int SMSR_disp_err(char *text)
+  //  char *text;   /* Text for tracing progress of program */
+  {
+      //  if (mtu_args.options & MTU_TRACE_ERROR)
+      fprintf(stderr, "SMSR: *** %s ***\n", text);
+
+    return 0;
+  }
+
+
+
+  /*
+   * MTU_display_msg - displays sent and received messages
+   *
+   * Always returns zero.
+   */
+  static int SMSR_display_msg(prefix, m)
+    char * prefix;        /* string prefix to command line display */
+    MSG *m;               /* received message */
+  {
+    HDR *h;               /* header of message to trace */
+    int instance;         /* instance of module message is sent from */
+    u16 mlen;             /* length of traced message */
+    u8 *pptr;             /* parameter are of trace message */
+
+    h = (HDR *)m;
+    instance = GCT_get_instance(h);
+    printf("%s I%04x M t%04x i%04x f%02x d%02x s%02x" , prefix, instance,
+           h->type, h->id, h->src, h->dst, h->status);
+
+    if ((mlen = m->len) > 0)
+    {
+      if (mlen > MTU_MAX_PARAM_LEN)
+        mlen = MTU_MAX_PARAM_LEN;
+      printf(" p");
+      pptr = get_param(m);
+      while (mlen--)
+      {
+        printf("%c%c", BIN2CH(*pptr/16), BIN2CH(*pptr%16));
+        pptr++;
+      }
+    }
+    printf("\n");
+
+    return 0;
+  } /* end of MTU_display_msg() */
+
+
+
+
+
+
+  /*
+   * MTU_display_sent_message - displays sent messages
+   *
+   * Always returns zero.
+   */
+  static int SMSR_display_sent_msg(MSG *m)
+  //  MSG *m;               /* received message */
+  {
+
+    switch (m->hdr.type)
+    {
+      case MAP_MSG_DLG_REQ:
+        switch (*(get_param(m)))
+        {
+          case MAPDT_OPEN_REQ:
+            printf("MTU Tx: sending Open Request\n");
+            break;
+          case MAPDT_OPEN_RSP:
+            printf("MTU Tx: sending Open Response\n");
+            break;
+          case MAPDT_CLOSE_REQ:
+            printf("MTU Tx: sending Close Request\n");
+            break;
+          case MAPDT_DELIMITER_REQ:
+            printf("MTU Tx: sending Delimiter Request\n");
+            break;
+          case MAPDT_U_ABORT_REQ:
+            printf("MTU Tx: sending U Abort Request\n");
+            break;
+          default:
+            printf("MTU Tx: sending dialogue request\n");
+            break;
+        }
+        break;
+
+      case MAP_MSG_SRV_REQ:
+        switch (*(get_param(m)))
+       {
+          case MAPST_SND_RTIGPRS_REQ:
+            printf("MTU Tx: sending Send Routing Info for GPRS Request\n");
+            break;
+          case MAPST_SEND_IMSI_REQ:
+            printf("MTU Tx: sending Send IMSI Request\n");
+            break;
+          case MAPST_FWD_SM_REQ:
+            printf("MTU Tx: sending Forward Short Message Request\n");
+            break;
+          case MAPST_MT_FWD_SM_REQ:
+            printf("MTU Tx: sending Forward Short Message Request\n");
+            break;
+          case MAPST_PRO_UNSTR_SS_REQ_REQ:
+            printf("MTU Tx: sending ProcessUnstructured-Request Req\n");
+            break;
+          case MAPST_UNSTR_SS_REQ_RSP:
+            printf("MTU Tx: sending UnstructuredSSRequestRSP\n");
+            break;
+          case MAPST_SND_RTISM_REQ:
+            printf("MTU Tx: sending Send Routing Info for SMS Request\n");
+            break;
+          default:
+            printf("MTU Tx: sending service request\n");
+            break;
+       }
+       break;
+    }
+
+    SMSR_display_msg("SMSR Tx:", m);
+    return 0;
+  }
+
 
   /*
    * function SMSR_send_msg(MSG *m)
@@ -244,13 +404,13 @@ u16 MTU_def_alph_to_str(da_octs, da_olen, da_num, ascii_str, max_strlen)
        */
       if (MTU_dlg_req_to_msg(m, req) != 0)
       {
-        MTU_disp_err("failed to format dialogue primitive request");
+        SMSR_disp_err("failed to format dialogue primitive request");
         relm(&m->hdr);
       }
       else
       {
       //if (mtu_args.options & MTU_TRACE_TX)
-          MTU_display_sent_msg(m);
+          SMSR_display_sent_msg(m);
 
         /*
          * and send to the call processing module:
@@ -261,6 +421,69 @@ u16 MTU_def_alph_to_str(da_octs, da_olen, da_num, ascii_str, max_strlen)
     return 0;
   } /* end of SMSR_send_dlg_req() */
 
+  /*
+   * SMSR_send_srv_req allocates a message (using the
+   * getm() function) then converts the primitive parameters
+   * from the 'C' structured representation into the correct
+   * format for passing to the MAP module.
+   * The formatted message is then sent.
+   *
+   * Always returns zero.
+   */
+  static int SMSR_send_srv_req(u16 dlg_id, struct map_data *ptr)
+  //  MTU_MSG  *req;        /* structured primitive request to send */
+  {
+    MSG *m;               /* message sent to MAP */
+    //u8 *ptr2;  //pointer to param area of sending message
+    //u16 dlg_id;
+    //req->dlg_prim = 0;
+
+    /*
+     * Allocate a message (MSG) to send:
+     */
+
+    //dlg_id = *(ptr+1);
+
+    if ((m = getm((u16)MAP_MSG_SRV_REQ, dlg_id, NO_RESPONSE, MTU_MAX_PARAM_LEN)) != 0)
+    {
+      m->hdr.src = smsrouter_mod_id;
+      m->hdr.dst = map_mod_id;
+
+
+      //we already receive copy of SRI_SM_IND
+      //just need to change IND to REQUEST
+      //and fill m->len
+
+      m->len = ptr->num_bytes;
+
+      u8 *ptr2 = get_param(m);
+
+      memcpy(ptr2, &ptr->data, m->len);
+
+      //change SRI_SM_IND to SRI_SM_REQ
+      *ptr2 = 0x01;
+
+      /*
+       * Format the parameter area of the message and
+       * (if successful) send it
+       */
+      //    if (MTU_srv_req_to_msg(m, req) != 0)
+      //{
+      // MTU_disp_err("failed to format service primitive request");
+      //  relm(&m->hdr);
+      // }
+      //else
+      //{
+      //    if (mtu_args.options & MTU_TRACE_TX)
+          SMSR_display_sent_msg(m);
+        /*
+         * and send to the call processing module:
+         */
+        SMSR_send_msg(m);
+        //}
+    }
+    return 0;
+  }
 
 
 
@@ -275,7 +498,7 @@ u16 MTU_def_alph_to_str(da_octs, da_olen, da_num, ascii_str, max_strlen)
  *         -1   if the dialogue could not be opened.
  */
 //static int hlr_open_dlg(service, imsi, ptr)//dlg_id)
-static int SMSR_open_dlg(dlg_info *root_dlg_info, dlg_info *child_dlg_info, u16 dlg_id)
+static int SMSR_open_dlg(u8 service, dlg_info *root_dlg_info, dlg_info *child_dlg_info, u16 dlg_id)
 {
     SMSR_MSG req;          /* structured form of request message */
     dlg_info *dlg;         /* dialogue data structure */
@@ -311,9 +534,9 @@ static int SMSR_open_dlg(dlg_info *root_dlg_info, dlg_info *child_dlg_info, u16 
     //printf("2\n");
 
     //  ptr++;
-    u16 dlg_id = *(ptr+1);
+    //u16 dlg_id = *(ptr+1);
     //    ptr++;
-    u8 mlen = *(ptr+2);
+    //u8 mlen = *(ptr+2);
 
 
  //   dlg = MTU_get_dlg_data(dlg_id);
@@ -493,13 +716,14 @@ static int SMSR_open_dlg(dlg_info *root_dlg_info, dlg_info *child_dlg_info, u16 
     //sending OPEN-REQUEST
   int ret = SMSR_send_dlg_req(&req);
 
-   printf("ret = %d\n");
+   printf("ret = %d\n", ret);
     /*
      * Send the appropriate service primitive request. First, allocate an invoke
      * ID. This invoke ID is used in all messages to and from MAP associated with
      * this request.
      */
-    dlg->invoke_id = SMSR_alloc_invoke_id();
+    //dlg->invoke_id = SMSR_alloc_invoke_id();
+   req.invoke_id = SMSR_alloc_invoke_id();
 
     switch (service)
     {
@@ -525,13 +749,14 @@ static int SMSR_open_dlg(dlg_info *root_dlg_info, dlg_info *child_dlg_info, u16 
         //MTU_MT_forward_sm(dlg_id, dlg->invoke_id);
         break;
 
-      case MTU_SRI_SM:
+      case SMSR_SRI_SM:
         /*
          * Send Routing Information For SM
          */
       //      MTU_sri_sm(dlg_id, dlg->invoke_id);
       //	MTU_sri_sm2();
-      send_srv_req2(ptr);
+        printf("service is SMSR_SRI_SM\n");
+      SMSR_send_srv_req(child_dlg_info->dlg_id, &root_dlg_info->map_data);
 
         break;
 
@@ -572,7 +797,8 @@ static int SMSR_open_dlg(dlg_info *root_dlg_info, dlg_info *child_dlg_info, u16 
      * Set state to wait for the MAP-OPEN-CNF which indicates whether or not
      * the dialogue has been accepted.
      */
-    dlg->state = DLG_PENDING_OPEN_CNF;
+    //dlg->state = DLG_PENDING_OPEN_CNF;
+child_dlg_info->state = DLG_PENDING_OPEN_CNF;
 
     printf(" funciton %s dlg info pointer = %p dlg state = %d\n", __PRETTY_FUNCTION__, dlg, dlg->state);
 
@@ -655,10 +881,12 @@ alloc_out_dlg_id(&out_dlg_id);
 child_dlg_info = get_dialogue_info(out_dlg_id);
 
 child_dlg_info->dlg_ref = root_dlg_info;
+child_dlg_info->dlg_id = out_dlg_id;
+
 root_dlg_info->dlg_ref = child_dlg_info;
 
 //hlr_open_dlg(service, &imsi, &buff);
-SMSR_open_dlg(root_dlg_info, child_dlg_info, out_dlg_id);
+SMSR_open_dlg(SMSR_SRI_SM, root_dlg_info, child_dlg_info, out_dlg_id);
 
 
   return 0;
@@ -1144,10 +1372,10 @@ dlg_info *get_dialogue_info(dlg_id)
     /*
      * MTU_get_dlg_data returns the dlg data structure.
      */
-    dlg_info *MTU_get_dlg_data(u16 dlg_id)
-    {
-       return (&(dlg_info_out[dlg_id - hlr_o_base_dlg_id]));
-    }
+  //  dlg_info *MTU_get_dlg_data(u16 dlg_id)
+   // {
+     //  return (&(dlg_info_out[dlg_id - hlr_o_base_dlg_id]));
+   // }
 
 
 

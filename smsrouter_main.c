@@ -31,8 +31,8 @@
 #define DEFAULT_MAP_ID           (MAP_TASK_ID)
 
 
-u8  smsrouter_mod_id;
-u8  map_mod_id;
+u8  smsrouter_mod_id = DEFAULT_MODULE_ID;
+u8  map_mod_id = DEFAULT_MAP_ID;
 static u8  mtr_trace;
 static u8  mtr_dlg_term_mode;
 
@@ -117,8 +117,8 @@ pthread_t       tid1,tid2;
   HDR *h;               /* received message */
 HDR *h1;
 
-  smsrouter_mod_id = DEFAULT_MODULE_ID;
-  map_mod_id = DEFAULT_MAP_ID;
+//  smsrouter_mod_id = DEFAULT_MODULE_ID;
+//  map_mod_id = DEFAULT_MAP_ID;
   mtr_trace = 1;
 
 
